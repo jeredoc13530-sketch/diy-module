@@ -1,0 +1,179 @@
+// ============================================================================
+//  PRISMA SCHEMA — Module "Fais Tes Économies Toi-Même"
+//  source of truth pour la partie DIY de l'appli Épargne+
+//
+//  Base : SQLite (dev local, pas besoin de PostgreSQL)
+//
+//  Installation:
+//    npx prisma generate
+//    npx prisma migrate dev --name init
+//    npx prisma db seed
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+ datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+  }
+
+// ──────────────────────────────────────────────────────────────────────────
+//  CORE : utilisateurs (auth / profil / gate d'âge)
+// ──────────────────────────────────────────────────────────────────────────
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  bornAt    DateTime?            // gate d'âge : tabac/alcool → 18+
+  role      String   @default("USER") // USER | EDITOR | ADMIN
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs          UserTipLog[]
+  findings      CommunityFinding[]
+  challenges    UserChallenge[]
+  notifications Notification[]
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  DIY TIPS : la base de connaissances "astuces du net"
+// ──────────────────────────────────────────────────────────────────────────
+model DiyTip {
+  id              String   @id @default(cuid())
+  // identité idempotente de l'ingestion (pas de doublons)
+  externalRef     String   @unique
+  sourceUrl       String   // URL d'origine → credit back obligatoire
+  sourceCredit    String   // nom du blog / chaîne (ex: "Zéro Déchet FR")
+  sourceLicense   String?  // ex: "CC BY 4.0"
+  slug            String   @unique
+  title           String
+  description     String   // HTML/Markdown nettoyé
+  category        String   // HOUSEHOLD | FOOD | HYGIENE | TOBACCO | ALCOHOL | COSMETICS | OTHER
+  difficulty      String   // EASY | MEDIUM | EXPERT
+  estimatedMonthlySaving Float @default(0)  // €/mois estimé
+  learningTimeHours Float     @default(0)  // heures pour apprendre
+  equipmentCost   Float     @default(0)   // coût du matériel
+  roiMonths       Float     @default(0)   // temps avant rentabilité
+  tags            String    @default("")  // JSON array sérialisé, ex: '["pain","zéro-déchet"]'
+
+  // sécurité : avertissements liés à l'astuce
+  safetyWarnings  DiyTipSafetyWarning[]
+
+  // modération (contenu scraped → validation humaine)
+  isVerified       Boolean  @default(false)
+  moderationStatus String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  reviewedBy       String?   // user.id qui a validé
+  reviewedAt       DateTime?
+  views            Int      @default(0)
+
+  logs  UserTipLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Relation N-M → 1 sur DiyTip (un type de danger, une astuce)
+model DiyTipSafetyWarning {
+  id        String   @id @default(cuid())
+  tipId     String
+  category  String   // HEALTH | CHEMICAL | FOOD | LEGAL | MATERIAL
+  text      String
+  severity  String   @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+
+  tip DiyTip @relation(fields: [tipId], references: [id], onDelete: Cascade)
+
+  @@unique([tipId, category])
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  USER TRACKING : journal des essais + ROI utilisateur
+// ──────────────────────────────────────────────────────────────────────────
+model UserTipLog {
+  id                String   @id @default(cuid())
+  userId            String
+  tipId             String
+  status            String   // WANT_TO_TRY | IN_PROGRESS | COMPLETED | ABANDONED
+  actualMonthlySaving Float?     // l'utilisateur renseigne son vrai gain
+  equipmentBought   Boolean @default(false)
+  equipmentCost     Float?       // matériel réellement acheté
+  rating            Int?         // 1-5 étoiles
+  notes             String?
+  startedAt         DateTime?
+  completedAt       DateTime?
+
+  user User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tip  DiyTip  @relation(fields: [tipId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, tipId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  COMMUNITY : "Le coin des trouvailles"
+// ──────────────────────────────────────────────────────────────────────────
+model CommunityFinding {
+  id          String   @id @default(cuid())
+  userId      String?
+  authorName  String?       // affiché publiquement si anon = false
+  title       String
+  content     String        // markdown
+  category    String        // UPCYCLING | TROC | LOCAL | BRICOLAGE | RECUPERATION | TIP
+  location    String?       // "Paris 15e", "Bordeaux centre"
+  isVerified  Boolean  @default(false)   // modéré
+  status      String   @default("PENDING") // PENDING | APPROVED | REJECTED
+  upvotes     Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  CHALLENGES : mode "Casse-toi pauv'" (défis hebdo)
+// ──────────────────────────────────────────────────────────────────────────
+model WeeklyChallenge {
+  id              String   @id @default(cuid())
+  title           String
+  description     String
+  category        String   // HOUSEHOLD | FOOD | HYGIENE | TOBACCO | ALCOHOL | COSMETICS | OTHER
+  targetPercent   Float        // ex: 50 = réduire la catégorie de 50%
+  activeStartDate DateTime
+  activeEndDate   DateTime
+  isPublished     Boolean @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  challenges UserChallenge[]
+}
+
+model UserChallenge {
+  id          String   @id @default(cuid())
+  userId      String
+  challengeId String
+  joinedAt    DateTime @default(now())
+  progress    Float    @default(0)    // 0-100
+  status      String   @default("ACTIVE") // ACTIVE | COMPLETED | ABANDONED
+  weekNumber  Int
+  year        Int
+
+  challenge WeeklyChallenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, challengeId])
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+//  NOTIFICATIONS : rappels ("ta machine à pain dort", défis, modération)
+// ──────────────────────────────────────────────────────────────────────────
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String   // CHALLENGE_REMINDER | TIPS_APPROVED | NEW_FINDING
+  title     String
+  message   String
+  link      String?  // lien vers la page (astuce, défi)
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

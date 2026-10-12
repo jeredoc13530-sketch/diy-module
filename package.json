@@ -1,0 +1,38 @@
+{
+  "name": "diy-module",
+  "version": "0.1.0",
+  "description": "Module Prisma : scraper + ingestion d'astuces DIY (schema, routes API)",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate",
+    "start": "tsx src/index.ts",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.example.ts",
+    "db:studio": "prisma studio",
+    "scrape": "tsx services/diyScraper.ts",
+    "scrape:rss": "tsx services/diyScraper.ts --rss",
+    "scrape:html": "tsx services/diyScraper.ts --html"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.12.0",
+    "@hono/zod-validator": "^0.2.0",
+    "@prisma/client": "^5.18.0",
+    "date-fns": "^3.6.0",
+    "hono": "^4.5.0",
+    "node-html-parser": "^6.1.0",
+    "prisma": "^5.18.0",
+    "rss-parser": "^3.13.0",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.example.ts"
+  }
+}
